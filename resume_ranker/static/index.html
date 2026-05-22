@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Resume Ranker</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        max-width: 800px;
+        margin: 40px auto;
+        padding: 0 20px;
+        color: #222;
+        line-height: 1.5;
+      }
+      h1 {
+        margin-bottom: 4px;
+      }
+      .subtitle {
+        color: #666;
+        margin-top: 0;
+      }
+      button {
+        background: #2563eb;
+        color: white;
+        border: none;
+        padding: 10px 24px;
+        font-size: 16px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #1d4ed8;
+      }
+      button:disabled {
+        background: #9ca3af;
+        cursor: not-allowed;
+      }
+      #status {
+        margin: 20px 0;
+        color: #666;
+      }
+      #status.error {
+        color: #dc2626;
+      }
+      .candidate {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 12px 0;
+      }
+      .candidate-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .name {
+        font-weight: 600;
+        font-size: 18px;
+      }
+      .email {
+        color: #6b7280;
+        font-size: 14px;
+      }
+      .score {
+        font-size: 22px;
+        font-weight: 700;
+        color: #2563eb;
+      }
+      .criteria {
+        margin: 10px 0 6px;
+        font-size: 14px;
+        color: #4b5563;
+      }
+      .criteria span {
+        margin-right: 16px;
+      }
+      .reasoning {
+        font-size: 14px;
+        color: #4b5563;
+        font-style: italic;
+        margin-top: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Resume Ranker</h1>
+    <p class="subtitle">Click to rank candidates for the demo job.</p>
+
+    <button id="rankBtn">Rank Candidates</button>
+    <div id="status"></div>
+    <div id="results"></div>
+
+    <script>
+      const btn = document.getElementById("rankBtn");
+      const statusEl = document.getElementById("status");
+      const resultsEl = document.getElementById("results");
+
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        statusEl.className = "";
+        statusEl.textContent =
+          "Scoring candidates... (this takes a few seconds)";
+        resultsEl.innerHTML = "";
+
+        try {
+          const response = await fetch("/jobs/1/rank", { method: "POST" });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status} ${response.statusText}`);
+          }
+          const data = await response.json();
+
+          statusEl.textContent = `Ranked ${data.ranked.length} candidates.`;
+          renderResults(data.ranked);
+        } catch (err) {
+          statusEl.className = "error";
+          statusEl.textContent = `Error: ${err.message}`;
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      function renderResults(ranked) {
+        ranked.forEach((c, i) => {
+          const card = document.createElement("div");
+          card.className = "candidate";
+          card.innerHTML = `
+                    <div class="candidate-top">
+                        <div>
+                            <div class="name"></div>
+                            <div class="email"></div>
+                        </div>
+                        <div class="score"></div>
+                    </div>
+                    <div class="criteria"></div>
+                    <div class="reasoning"></div>
+                `;
+          card.querySelector(".name").textContent = `${i + 1}. ${c.name}`;
+          card.querySelector(".email").textContent = c.email;
+          card.querySelector(".score").textContent =
+            `Weight: ${c.total_score.toFixed(1)}`;
+
+          const criteria = card.querySelector(".criteria");
+          Object.entries(c.criterion_scores).forEach(([k, v]) => {
+            const span = document.createElement("span");
+            span.textContent = `${k}: ${v}/5`;
+            criteria.appendChild(span);
+          });
+
+          card.querySelector(".reasoning").textContent = c.reasoning || "";
+          resultsEl.appendChild(card);
+        });
+      }
+    </script>
+  </body>
+</html>
