@@ -1,23 +1,32 @@
 """Create the schema and insert sample data.
 
-Run once before `rank.py`. Drops and recreates the tables so it's safe to
-re-run.
+Run once before using the app. Drops and recreates the tables so it's safe
+to re-run (existing data is wiped).
 """
 
+import os
 import asyncio
 import json
 
+from dotenv import load_dotenv
 from src.db import get_pool, close_pool
+
+load_dotenv()
+
+# In this demo every email is delivered to your Resend signup inbox.
+DEMO_EMAIL = os.environ.get("DEMO_EMAIL", "you@example.com")
 
 
 SCHEMA_SQL = """
+DROP TABLE IF EXISTS interviews;
 DROP TABLE IF EXISTS applications;
 DROP TABLE IF EXISTS jobs;
 
 CREATE TABLE jobs (
-    id          SERIAL PRIMARY KEY,
-    title       TEXT NOT NULL,
-    description JSONB NOT NULL
+    id              SERIAL PRIMARY KEY,
+    title           TEXT NOT NULL,
+    description     JSONB NOT NULL,
+    recruiter_email TEXT NOT NULL
 );
 
 CREATE TABLE applications (
@@ -32,10 +41,16 @@ CREATE TABLE applications (
     scored_at         TIMESTAMPTZ
 );
 
-CREATE INDEX idx_apps_ranking ON applications(jd_id, total_score DESC)
-    WHERE scoring_status = 'scored';
+CREATE TABLE interviews (
+    id              SERIAL PRIMARY KEY,
+    application_id  INT NOT NULL REFERENCES applications(id),
+    recruiter_email TEXT NOT NULL,
+    candidate_email TEXT NOT NULL,
+    scheduled_for   TIMESTAMPTZ NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'scheduled',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 """
-
 
 SAMPLE_JD = {
     "title": "Senior Backend Engineer",
@@ -50,14 +65,11 @@ SAMPLE_JD = {
     ],
 }
 
-
 SAMPLE_APPLICATIONS = [
     {
         "name": "Alice Chen",
-        "email": "alice.chen@example.com",
         "resume": {
-            "skills": ["Python", "PostgreSQL", "REST APIs", "AWS",
-                       "Kubernetes", "Redis"],
+            "skills": ["Python", "PostgreSQL", "REST APIs", "AWS", "Kubernetes", "Redis"],
             "experience": [
                 {"title": "Senior Backend Engineer", "company": "PayLane",
                  "domain": "fintech", "years": 4},
@@ -65,13 +77,11 @@ SAMPLE_APPLICATIONS = [
                  "domain": "fintech", "years": 3},
             ],
             "total_years": 7,
-            "education": [{"degree": "BS Computer Science",
-                           "school": "Carnegie Mellon"}],
+            "education": [{"degree": "BS Computer Science", "school": "Carnegie Mellon"}],
         },
     },
     {
         "name": "Bob Martinez",
-        "email": "bob.martinez@example.com",
         "resume": {
             "skills": ["Python", "PostgreSQL", "REST APIs", "Docker"],
             "experience": [
@@ -79,13 +89,11 @@ SAMPLE_APPLICATIONS = [
                  "domain": "e-commerce", "years": 5},
             ],
             "total_years": 5,
-            "education": [{"degree": "BS Computer Science",
-                           "school": "State University"}],
+            "education": [{"degree": "BS Computer Science", "school": "State University"}],
         },
     },
     {
         "name": "Carol Singh",
-        "email": "carol.singh@example.com",
         "resume": {
             "skills": ["Python", "Django", "MySQL", "REST APIs"],
             "experience": [
@@ -93,16 +101,13 @@ SAMPLE_APPLICATIONS = [
                  "domain": "marketing", "years": 3},
             ],
             "total_years": 3,
-            "education": [{"degree": "BS Information Systems",
-                           "school": "City College"}],
+            "education": [{"degree": "BS Information Systems", "school": "City College"}],
         },
     },
     {
         "name": "David Kim",
-        "email": "david.kim@example.com",
         "resume": {
-            "skills": ["Python", "PostgreSQL", "REST APIs", "AWS",
-                       "GraphQL", "Redis", "Kubernetes"],
+            "skills": ["Python", "PostgreSQL", "REST APIs", "AWS", "GraphQL", "Redis", "Kubernetes"],
             "experience": [
                 {"title": "Staff Engineer", "company": "BankTech",
                  "domain": "fintech", "years": 6},
@@ -110,13 +115,11 @@ SAMPLE_APPLICATIONS = [
                  "domain": "fintech", "years": 4},
             ],
             "total_years": 10,
-            "education": [{"degree": "MS Computer Science",
-                           "school": "Stanford"}],
+            "education": [{"degree": "MS Computer Science", "school": "Stanford"}],
         },
     },
     {
         "name": "Eve Patel",
-        "email": "eve.patel@example.com",
         "resume": {
             "skills": ["JavaScript", "Node.js", "MongoDB", "React"],
             "experience": [
@@ -124,13 +127,11 @@ SAMPLE_APPLICATIONS = [
                  "domain": "advertising", "years": 4},
             ],
             "total_years": 4,
-            "education": [{"degree": "BS Computer Science",
-                           "school": "University of Texas"}],
+            "education": [{"degree": "BS Computer Science", "school": "University of Texas"}],
         },
     },
     {
         "name": "Frank Wu",
-        "email": "frank.wu@example.com",
         "resume": {
             "skills": ["Python", "PostgreSQL", "AWS", "REST APIs"],
             "experience": [
@@ -138,8 +139,7 @@ SAMPLE_APPLICATIONS = [
                  "domain": "fintech", "years": 5},
             ],
             "total_years": 5,
-            "education": [{"degree": "BS Software Engineering",
-                           "school": "UC Davis"}],
+            "education": [{"degree": "BS Software Engineering", "school": "UC Davis"}],
         },
     },
 ]
@@ -151,27 +151,30 @@ async def main() -> None:
         async with pool.acquire() as conn:
             await conn.execute(SCHEMA_SQL)
 
+            # Recruiter email = DEMO_EMAIL so real delivery works.
             job_id = await conn.fetchval(
-                "INSERT INTO jobs (title, description) VALUES ($1, $2) RETURNING id",
+                "INSERT INTO jobs (title, description, recruiter_email) "
+                "VALUES ($1, $2, $3) RETURNING id",
                 SAMPLE_JD["title"],
                 json.dumps(SAMPLE_JD),
+                DEMO_EMAIL,
             )
             print(f"Inserted job {job_id}: {SAMPLE_JD['title']}")
+            print(f"All demo emails will be delivered to: {DEMO_EMAIL}")
 
             for app in SAMPLE_APPLICATIONS:
+                # Candidate email = DEMO_EMAIL too, so any candidate works.
                 await conn.execute(
-                    """
-                    INSERT INTO applications
-                        (jd_id, candidate_name, candidate_email, resume_data)
-                    VALUES ($1, $2, $3, $4)
-                    """,
+                    "INSERT INTO applications "
+                    "(jd_id, candidate_name, candidate_email, resume_data) "
+                    "VALUES ($1, $2, $3, $4)",
                     job_id,
                     app["name"],
-                    app["email"],
+                    DEMO_EMAIL,
                     json.dumps(app["resume"]),
                 )
             print(f"Inserted {len(SAMPLE_APPLICATIONS)} applications")
-            print(f"\nNext step: python -m src.rank {job_id}")
+            print("\nNext step: uvicorn src.main:app --reload")
     finally:
         await close_pool()
 

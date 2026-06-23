@@ -22,8 +22,8 @@
         background: #2563eb;
         color: white;
         border: none;
-        padding: 10px 24px;
-        font-size: 16px;
+        padding: 8px 18px;
+        font-size: 15px;
         border-radius: 6px;
         cursor: pointer;
       }
@@ -33,6 +33,10 @@
       button:disabled {
         background: #9ca3af;
         cursor: not-allowed;
+      }
+      button.primary {
+        padding: 10px 24px;
+        font-size: 16px;
       }
       #status {
         margin: 20px 0;
@@ -61,7 +65,7 @@
         font-size: 14px;
       }
       .score {
-        font-size: 22px;
+        font-size: 18px;
         font-weight: 700;
         color: #2563eb;
       }
@@ -79,23 +83,53 @@
         font-style: italic;
         margin-top: 6px;
       }
+      .schedule {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid #f3f4f6;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .schedule input[type="datetime-local"] {
+        padding: 6px 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      .schedule-msg {
+        font-size: 14px;
+      }
+      .schedule-msg.error {
+        color: #dc2626;
+      }
+      .scheduled {
+        margin-top: 12px;
+        padding: 10px 14px;
+        background: #ecfdf5;
+        border: 1px solid #a7f3d0;
+        border-radius: 6px;
+        color: #065f46;
+        font-size: 14px;
+      }
     </style>
   </head>
   <body>
     <h1>Resume Ranker</h1>
     <p class="subtitle">Click to rank candidates for the demo job.</p>
 
-    <button id="rankBtn">Rank Candidates</button>
+    <button id="rankBtn" class="primary">Rank Candidates</button>
     <div id="status"></div>
     <div id="results"></div>
 
     <script>
-      const btn = document.getElementById("rankBtn");
+      const rankBtn = document.getElementById("rankBtn");
       const statusEl = document.getElementById("status");
       const resultsEl = document.getElementById("results");
 
-      btn.addEventListener("click", async () => {
-        btn.disabled = true;
+      rankBtn.addEventListener("click", async () => {
+        rankBtn.disabled = true;
         statusEl.className = "";
         statusEl.textContent =
           "Scoring candidates... (this takes a few seconds)";
@@ -107,14 +141,13 @@
             throw new Error(`HTTP ${response.status} ${response.statusText}`);
           }
           const data = await response.json();
-
           statusEl.textContent = `Ranked ${data.ranked.length} candidates.`;
           renderResults(data.ranked);
         } catch (err) {
           statusEl.className = "error";
           statusEl.textContent = `Error: ${err.message}`;
         } finally {
-          btn.disabled = false;
+          rankBtn.disabled = false;
         }
       });
 
@@ -132,6 +165,7 @@
                     </div>
                     <div class="criteria"></div>
                     <div class="reasoning"></div>
+                    <div class="schedule-area"></div>
                 `;
           card.querySelector(".name").textContent = `${i + 1}. ${c.name}`;
           card.querySelector(".email").textContent = c.email;
@@ -144,10 +178,78 @@
             span.textContent = `${k}: ${v}/5`;
             criteria.appendChild(span);
           });
-
           card.querySelector(".reasoning").textContent = c.reasoning || "";
+
+          renderScheduleArea(
+            card.querySelector(".schedule-area"),
+            c.application_id,
+            c.interview,
+          );
           resultsEl.appendChild(card);
         });
+      }
+
+      function renderScheduleArea(container, applicationId, interview) {
+        container.innerHTML = "";
+        if (interview) {
+          showScheduled(container, interview.scheduled_for);
+          return;
+        }
+        const wrap = document.createElement("div");
+        wrap.className = "schedule";
+        wrap.innerHTML = `
+                <input type="datetime-local" />
+                <button>Schedule Interview</button>
+                <span class="schedule-msg"></span>
+            `;
+        const input = wrap.querySelector("input");
+        const btn = wrap.querySelector("button");
+        const msg = wrap.querySelector(".schedule-msg");
+
+        btn.addEventListener("click", async () => {
+          if (!input.value) {
+            msg.className = "schedule-msg error";
+            msg.textContent = "Pick a date and time first";
+            return;
+          }
+          btn.disabled = true;
+          msg.className = "schedule-msg";
+          msg.textContent = "Sending emails...";
+          try {
+            const res = await fetch(`/applications/${applicationId}/schedule`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ scheduled_for: input.value }),
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              throw new Error(err.detail || `HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            showScheduled(container, data.scheduled_for);
+          } catch (err) {
+            msg.className = "schedule-msg error";
+            msg.textContent = err.message;
+            btn.disabled = false;
+          }
+        });
+
+        container.appendChild(wrap);
+      }
+
+      function showScheduled(container, scheduledForIso) {
+        container.innerHTML = "";
+        const div = document.createElement("div");
+        div.className = "scheduled";
+        const when = new Date(scheduledForIso).toLocaleString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+        div.textContent = `Interview scheduled for ${when}. Emails sent to both parties.`;
+        container.appendChild(div);
       }
     </script>
   </body>
